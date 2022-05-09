@@ -1,0 +1,188 @@
+---create 3 Ubuntu EC2 instances
+1 server-t2.large (bamboo server) 
+2 server-t2.micro
+	QA server (install tomcat 8/tomcat8-admin) 
+	Prod server (install tomcat 8/tomcat8-admin) 
+*********************************************************************************
+Bamboo installation and configure
+--prerequisite for Bamboo
+sudo apt-get update
+sudo apt-get install -y software-properties-common
+sudo apt-get install -y openjdk-8-jdk
+java -version
+sudo apt-get install -y git maven
+
+--set path for java
+which java
+ o/p /use/bin/java
+
+readlink -f /usr/bin/java
+ o/p /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java
+
+JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64/jre
+export JAVA_HOME
+PATH=$PATH:$JAVA_HOME
+echo $PATH
+
+---install/configure BAMBOO
+
+--create 2 folders (one to download/install bamboo and other home for BAMBOO)
+mkdir bamboo-home
+mkdir bamboo-install
+cd bamboo-install/
+wget https://product-downloads.atlassian.com/software/bamboo/downloads/atlassian-bamboo-6.5.0.tar.gz
+ls
+  o/p atlassian-bamboo-6.5.0.tar.gz
+tar -xvf atlassian-bamboo-6.5.0.tar.gz
+ls
+atlassian-bamboo-6.5.0
+cd atlassian-bamboo-6.5.0
+cd atlassian-bamboo/
+cd WEB-INF/
+cd classes/
+ls
+  o/p bamboo-init.properties
+vim bamboo-init.properties
+  uncomment and write path of bamboo home. 
+#bamboo.home={path of bamboo home} (e.g. /home/ubuntu/bamboo-home)
+
+cd ../../..
+cd bin/
+./startup.sh
+  o/p tomcat started.........
+
+bamboo server publicIP:8085
+need licence key:  www.id.atlassian.com.........login/signup(90 days free trial).....
+
+express installation/ custom installation: need external database
+create admin user
+**********************************************************************************
+configure QA/prod servers
+
+connect to QA server by putty.
+sudo apt-get update
+sudo apt-get install -y tomcat8
+sudo apt-get install -y tomcat8-admin
+sudo vim /etc/tomcat8/tomcat-users.xml
+delete all content of this file and write
+
+<tomcat-users>
+	<user username="user" password="passwd" roles="manager-script"/>
+</tomcat-users>
+
+{NOTE: manager-script role is given to this user. This user is able to deploy artifacts to this tomcat.} 
+
+save and quit (esc :wq)
+sudo service tomcat8 restart
+
+verify tomcat installation by publicIP of server:8080   --get tomcat default page
+
+{repeate same process of tomcat installation on prod server.}
+
+*****************************************************************************************************
+connect to BAMBOO server by putty
+make sure bambooserver is running (file location bamboo-install----** --bin--- ./startup.sh)
+bamboo server publicIP:8085
+login.............admin credentials during install
+
+********************************************************************************************************
+Flow 
+
+developer-------git-------bamboo-----build----artifact(jar/war/ear file)-----bamboo-----QA server deployment-----tester access app----perform test-----test pass----BAMBOO----Prod server deployment
+
+************************************************************************************************************
+				project
+
+Plan 1 (DEV)						Plan 2 (Testing)
+
+Stage1 ------------->Stage2-----------> Stage3
+   job1
+     Task1
+       |
+     Task2
+  job2
+    Task1
+      |    
+    Task2
+ 
+Tasks execute sequentially within a job.
+Jobs execute in parallel within a stage. 
+Stages execute sequentially within a plan. 
+
+************************************************************************************************************
+create plan: Dev (download code, build it, deploy to QA server)
+Link repository
+
+go to default job
+
+add task
+Maven3.x
+Task description: continuour build
+Executable: {maven home valur as path}  --which mvn   --readlink -f .....
+Goal: clean package
+{see war file location from build log file}
+
+add task
+deploy tomcat application
+Task description: continuous deployment
+Tomcat Manager URL: http://{privateIP of QA server}:8080/manager/
+Tomcat Manager Username: ***
+Tomcat Manager Password: ***
+Application Context: /testapp
+War File: {path to war file relative to working directory}: e.g /webapp/target/webapp.war
+enable plan  -----run plan
+
+QA server publicIP:8080/testapp
+
+************************************************************************************************
+create plan: Testing {testing jar file download, perform automation test, deploy to prod server}
+Link new repo: git hub-----> FunctionalTesting {selenium code}   --download code to BAMBOO
+configure plan
+default job---add task----command---
+Task description: continuous testing
+Executable: Path: {path of java executable} ---which java out put
+Argument: -jar testing.jar
+{java -jar testjarfilename.jar}
+run plan
+
+****************************************************************************************************
+--copy jar and deploy to prod server: 
+
+plan: Dev ------------cp---------------->Testing
+War file in Dev Plan
+
+Testing plan-----configure plan-------->default job------>add task----->command
+Task description: copy Artifacts
+Executable: Path: {path to your command executable} -- which cp o/p   /bin/cp
+Argument: {source location of jar file  destination location of jar file}
+
+Add task---->deploy tomcat application
+Task description: continuous delivery
+Tomcat manager URL: http://{privateIP of prod server}:8080/manager/
+Tomcat Manager Username: ***
+Tomcat Manager Password: ***
+Application Context: /
+War File: {path to war file relative to working directory}: e.g ./webapp.war
+run plan
+
+prod server publicIP:8080/
+
+******************************************************************************************
+--linking Dev plan and Testing plan (when Dev plan triggered, Testing plan auto triggered)
+
+go to Dev plan ------>Action ----->configure plan----->Dependencies---------->Child plan: select Testing plan---->save
+
+NOTE: Trigger dev plan---code download/build/test/deploy to QA----Auto trigger Testing (Automation testing)----pause deployment to prod (approval needed, Manual run) by adding stage---->deploy to production----->Testing
+
+
+
+
+
+
+
+
+
+
+
+
+
